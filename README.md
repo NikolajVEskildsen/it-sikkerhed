@@ -38,7 +38,7 @@ med mock-data). Alt data lever i databasen — intet er hardcodet i frontend.
 | Hvad | URL |
 |---|---|
 | Frontend (demoen) | http://localhost:8080 |
-| REST API direkte | http://localhost:5000/api/health |
+| REST API direkte | http://localhost:5000/api/query/health |
 | MSSQL (DataGrip/SSMS) | `localhost:1433` |
 
 ### Forbind med DataGrip / SSMS
@@ -48,40 +48,49 @@ med mock-data). Alt data lever i databasen — intet er hardcodet i frontend.
 
 ## REST API
 
-| Metode | Endpoint | Body / query |
-|---|---|---|
-| POST | `/api/{mode}/login` | `{ "username": "...", "password": "..." }` |
-| GET  | `/api/{mode}/search?term=...` | — |
+Backend gemmer **ingen** forespørgsler. Den har ét generisk endpoint, der udfører
+den SQL frontend sender. De konkrete demo-forespørgsler ligger som consts i
+`frontend/src/App.vue`.
 
-`{mode}` er `vulnerable` eller `secure`. Svaret indeholder den **faktisk udførte**
-SQL (`sql`), eventuelle bundne parametre (`boundParams`), samt `columns` + `rows`.
+| Metode | Endpoint | Body |
+|---|---|---|
+| POST | `/api/query` | `{ "sql": "...", "parameters": { "@navn": "værdi" } }` |
+
+- **Sårbar:** frontend sætter input ind i `sql`-strengen og sender uden `parameters`.
+- **Sikker:** frontend sender fast `sql` med pladsholdere + `parameters` adskilt.
+
+Svaret er `{ columns, rows, error }`.
+
+Lagdeling (standard .NET): `QueryController` (endpoints) → `QueryService` (logik)
+→ `Database` (model/dataadgang). `DbSeeder` opretter + fylder databasen ved opstart.
 
 Demonstrér angrebet direkte mod API'en:
 ```bash
-# Sårbar: logger ind som admin uden adgangskode
-curl -s -X POST http://localhost:5000/api/vulnerable/login \
+# Sårbar: rå SQL, logger ind som admin uden adgangskode
+curl -s -X POST http://localhost:5000/api/query \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin'\'' --","password":""}'
+  -d '{"sql":"SELECT id, username, email FROM users WHERE username = '\''admin'\'' --'\'' AND password = '\'''\''"}'
 
-# Sikker: samme payload fejler
-curl -s -X POST http://localhost:5000/api/secure/login \
+# Sikker: samme payload som parameter -> 0 rækker
+curl -s -X POST http://localhost:5000/api/query \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin'\'' --","password":""}'
+  -d '{"sql":"SELECT id, username, email FROM users WHERE username = @username AND password = @password","parameters":{"@username":"admin'\'' --","@password":""}}'
 ```
 
 ## Sådan demonstreres det i frontend
 
-Knapperne **Sårbar** / **Sikker** øverst skifter mode. Hver visning viser den SQL,
-API'en sendte til databasen.
+Knapperne **Sårbar** / **Sikker** øverst skifter mode. Under hvert felt vises live den
+SQL, der bliver sendt. Angrebsknapperne **udfylder kun feltet** — du trykker selv
+**Log ind** / **Søg** for at sende.
 
 ### 1. Login — omgå adgangskontrol
-Klik **`admin' --`**.
+Klik **`admin' --`** (udfylder feltet), tryk **Log ind**.
 - **Sårbar:** logger ind som `admin` uden adgangskode. SQL bliver
   `... WHERE username = 'admin' --' AND password = ''` — `--` udkommenterer password-tjekket.
 - **Sikker:** login fejler. Hele `admin' --` bindes som ét brugernavn.
 
 ### 2. Brugersøgning — stjæl data (UNION)
-Klik **`' UNION SELECT username, password ...`**.
+Klik **`' UNION SELECT username, password ...`**, tryk **Søg**.
 - **Sårbar:** siden viser normalt kun navn + email, men UNION-angrebet henter
   `password`-kolonnen med ud for alle brugere.
 - **Sikker:** payloaden bindes som bogstavelig søgetekst og giver 0 resultater.
@@ -90,7 +99,7 @@ Klik **`' UNION SELECT username, password ...`**.
 
 | | Sårbar | Sikker |
 |---|---|---|
-| Hvordan bygges forespørgslen | input sættes ind i SQL-strengen (`$"... '{input}'"`) | fast SQL med pladsholdere (`@param`) |
+| Hvordan bygges forespørgslen | input sættes ind i SQL-strengen (`` `... '${input}'` ``) | fast SQL med pladsholdere (`@param`) |
 | Hvad er input | kan blive til **kode** | er altid **data** |
 | Hvad adresseres | — | selve årsagen: adskillelse af kode og data |
 
@@ -100,10 +109,13 @@ Parameterisering fjerner årsagen: databasen får forespørgslens struktur førs
 behandler derefter input udelukkende som værdier.
 
 ## Filer
-- `api/Db.cs` — sårbare og sikre forespørgsler side om side + seed-data
-- `api/Program.cs` — minimal REST API (CORS, endpoints)
-- `frontend/src/App.vue` — UI, mode-toggle, angrebsknapper
-- `frontend/src/ResultView.vue` — viser udført SQL + resultat
+- `api/Controllers/QueryController.cs` — REST-endpoints
+- `api/Services/QueryService.cs` — logiklag
+- `api/Data/Database.cs` — model/dataadgang (udfører SQL)
+- `api/Data/DbSeeder.cs` — opretter + fylder databasen ved opstart
+- `api/Models/` — `QueryRequest`, `QueryResult`
+- `frontend/src/App.vue` — UI + de rå SQL-consts, mode-toggle, angrebsknapper
+- `frontend/src/ResultView.vue` — viser resultatet
 - `frontend/nginx.conf` — serverer Vue + proxyer `/api` til API'en
 - `compose.yaml` — db + api + web og de to netværk
 

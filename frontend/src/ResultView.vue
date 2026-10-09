@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  result: Object,
+  result: Object,            // { columns, rows, error } eller null
   successWhenRows: Boolean,
   successText: { type: String, default: '' },
   failText: { type: String, default: '' },
@@ -13,14 +13,6 @@ const ok = computed(() => props.result?.rows?.length > 0)
 
 <template>
   <div class="result" v-if="result">
-    <div class="sql-label">SQL sendt til databasen:</div>
-    <pre class="sql">{{ result.sql }}</pre>
-
-    <template v-if="result.boundParams">
-      <div class="sql-label">Bundne parametre (data — aldrig fortolket som SQL):</div>
-      <pre class="sql params">{{ result.boundParams }}</pre>
-    </template>
-
     <div v-if="result.error" class="alert warn">
       <strong>SQL-fejl:</strong> {{ result.error }}
     </div>

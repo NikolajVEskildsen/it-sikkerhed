@@ -1,8 +1,16 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import ResultView from './ResultView.vue'
 
-const mode = ref('vulnerable')      // 'vulnerable' | 'secure'
+// ===== Rå SQL — ligger bevidst i frontend til demoen =====
+// Sårbar: brugerinput sættes DIREKTE ind i strengen (data bliver til kode).
+const vulnLoginSql  = (u, p) => `SELECT id, username, email FROM users WHERE username = '${u}' AND password = '${p}'`
+const vulnSearchSql = (t)    => `SELECT username, email FROM users WHERE username LIKE '%${t}%'`
+// Sikker: faste pladsholdere. Input sendes adskilt som parametre (data forbliver data).
+const SECURE_LOGIN_SQL  = `SELECT id, username, email FROM users WHERE username = @username AND password = @password`
+const SECURE_SEARCH_SQL = `SELECT username, email FROM users WHERE username LIKE '%' + @term + '%'`
+
+const mode = ref('vulnerable')   // 'vulnerable' | 'secure'
 const user = ref('')
 const pass = ref('')
 const term = ref('')
@@ -15,24 +23,45 @@ function setMode(m) {
   searchResult.value = null
 }
 
-async function login() {
-  const r = await fetch(`/api/${mode.value}/login`, {
+// Live-preview af den SQL der bliver sendt — opdateres mens man skriver/indsætter.
+const loginSql = computed(() =>
+  mode.value === 'vulnerable' ? vulnLoginSql(user.value, pass.value) : SECURE_LOGIN_SQL)
+const searchSql = computed(() =>
+  mode.value === 'vulnerable' ? vulnSearchSql(term.value) : SECURE_SEARCH_SQL)
+const loginParams = computed(() =>
+  mode.value === 'secure' ? `@username = '${user.value}', @password = '${pass.value}'` : null)
+const searchParams = computed(() =>
+  mode.value === 'secure' ? `@term = '${term.value}'` : null)
+
+async function post(body) {
+  const r = await fetch('/api/query', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: user.value, password: pass.value }),
+    body: JSON.stringify(body),
   })
-  loginResult.value = await r.json()
+  return await r.json()
 }
 
-async function search() {
-  const r = await fetch(`/api/${mode.value}/search?term=` + encodeURIComponent(term.value))
-  searchResult.value = await r.json()
+async function runLogin() {
+  const body = mode.value === 'vulnerable'
+    ? { sql: vulnLoginSql(user.value, pass.value) }
+    : { sql: SECURE_LOGIN_SQL, parameters: { '@username': user.value, '@password': pass.value } }
+  searchResult.value = null
+  loginResult.value = await post(body)
 }
 
-// Angrebs-payloads: sæt felterne og kør med det samme.
-function injectAdminComment() { user.value = "admin' --"; pass.value = ''; login() }
-function injectOrTrue()       { user.value = 'x'; pass.value = "x' OR '1'='1"; login() }
-function injectUnion()        { term.value = "' UNION SELECT username, password FROM users --"; search() }
+async function runSearch() {
+  const body = mode.value === 'vulnerable'
+    ? { sql: vulnSearchSql(term.value) }
+    : { sql: SECURE_SEARCH_SQL, parameters: { '@term': term.value } }
+  loginResult.value = null
+  searchResult.value = await post(body)
+}
+
+// Angrebsknapper: udfylder KUN felterne. Man sender selv bagefter.
+function fillAdminComment() { user.value = "admin' --"; pass.value = '' }
+function fillOrTrue()       { user.value = 'x'; pass.value = "x' OR '1'='1" }
+function fillUnion()        { term.value = "' UNION SELECT username, password FROM users --" }
 </script>
 
 <template>
@@ -60,12 +89,20 @@ function injectUnion()        { term.value = "' UNION SELECT username, password 
         <input v-model="user" />
         <label>Adgangskode</label>
         <input v-model="pass" />
-        <button class="primary" @click="login">Log ind</button>
+
+        <div class="sql-label">SQL der sendes til backend:</div>
+        <pre class="sql">{{ loginSql }}</pre>
+        <template v-if="loginParams">
+          <div class="sql-label">Parametre (data):</div>
+          <pre class="sql params">{{ loginParams }}</pre>
+        </template>
+
+        <button class="primary" @click="runLogin">Log ind</button>
 
         <div class="attack-box">
-          <div class="attack-title">Angreb (klik for at indsætte):</div>
-          <button class="attack" @click="injectAdminComment">admin' --</button>
-          <button class="attack" @click="injectOrTrue">' OR '1'='1</button>
+          <div class="attack-title">Angreb (klik udfylder kun feltet — tryk selv "Log ind"):</div>
+          <button class="attack" @click="fillAdminComment">admin' --</button>
+          <button class="attack" @click="fillOrTrue">' OR '1'='1</button>
           <div class="attack-hint">Mål: log ind som <code>admin</code> uden at kende adgangskoden.</div>
         </div>
 
@@ -78,11 +115,19 @@ function injectUnion()        { term.value = "' UNION SELECT username, password 
         <h2>2. Brugersøgning — stjæl data (UNION)</h2>
         <label>Søg efter brugernavn</label>
         <input v-model="term" />
-        <button class="primary" @click="search">Søg</button>
+
+        <div class="sql-label">SQL der sendes til backend:</div>
+        <pre class="sql">{{ searchSql }}</pre>
+        <template v-if="searchParams">
+          <div class="sql-label">Parametre (data):</div>
+          <pre class="sql params">{{ searchParams }}</pre>
+        </template>
+
+        <button class="primary" @click="runSearch">Søg</button>
 
         <div class="attack-box">
-          <div class="attack-title">Angreb (klik for at indsætte):</div>
-          <button class="attack" @click="injectUnion">' UNION SELECT username, password ...</button>
+          <div class="attack-title">Angreb (klik udfylder kun feltet — tryk selv "Søg"):</div>
+          <button class="attack" @click="fillUnion">' UNION SELECT username, password ...</button>
           <div class="attack-hint">Mål: få <code>password</code>-kolonnen med ud selvom siden kun viser navn + email.</div>
         </div>
 
@@ -118,7 +163,7 @@ body { margin: 0; font-family: system-ui, sans-serif; color: #222; background: #
 .card h2 { font-size: 1.05rem; margin: 0 0 .75rem; }
 label { display: block; font-size: .85rem; font-weight: 600; margin: .5rem 0 .2rem; }
 input { width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: .3rem; }
-button.primary { margin-top: .75rem; background: #0d6efd; color: #fff; border: 0;
+button.primary { margin-top: .5rem; background: #0d6efd; color: #fff; border: 0;
   padding: .5rem 1rem; border-radius: .3rem; cursor: pointer; }
 
 .attack-box {
@@ -131,12 +176,12 @@ button.primary { margin-top: .75rem; background: #0d6efd; color: #fff; border: 0
 button.attack { background: #dc3545; color: #fff; border: 0; padding: .35rem .7rem;
   border-radius: .3rem; cursor: pointer; font-size: .85rem; }
 
-.result { margin-top: 1rem; }
-.sql-label { font-size: .8rem; font-weight: 600; color: #555; margin-bottom: .2rem; }
+.sql-label { font-size: .8rem; font-weight: 600; color: #555; margin: .6rem 0 .2rem; }
 pre.sql { background: #1e1e1e; color: #d4d4d4; padding: .6rem .75rem; border-radius: .4rem;
-  font-size: .82rem; white-space: pre-wrap; word-break: break-word; margin: 0 0 .6rem; }
+  font-size: .82rem; white-space: pre-wrap; word-break: break-word; margin: 0; }
 pre.sql.params { background: #0d3b2e; color: #a7f3d0; }
 
+.result { margin-top: 1rem; }
 .alert { padding: .5rem .75rem; border-radius: .3rem; margin-bottom: .6rem; font-size: .9rem; }
 .alert.danger  { background: #f8d7da; color: #842029; }
 .alert.success { background: #d1e7dd; color: #0f5132; }
