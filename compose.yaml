@@ -1,0 +1,41 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Str0ng!Passw0rd"
+    ports:
+      # Kun så DU kan forbinde med DataGrip/SSMS fra din maskine (host -> container).
+      # Ingen app-container når databasen ad denne vej — se netværkene nedenfor.
+      - "1433:1433"
+    networks:
+      - backend
+
+  api:
+    build: ./api
+    environment:
+      DB_CONNECTION: "Server=db,1433;Database=SqliDemo;User Id=sa;Password=Str0ng!Passw0rd;TrustServerCertificate=true"
+    ports:
+      - "5000:8080"   # REST API direkte (curl/Postman)
+    networks:
+      - backend       # kan nå databasen
+      - frontend      # kan nås af web
+    depends_on:
+      - db
+
+  web:
+    build: ./frontend
+    ports:
+      - "8080:80"     # Vue-frontend -> http://localhost:8080
+    networks:
+      - frontend      # kun frontend-nettet: KAN IKKE nå databasen
+    depends_on:
+      - api
+
+# To adskilte netværk. 'web' er ikke på 'backend', så den eneste vej fra
+# applikationen til databasen går gennem 'api'.
+networks:
+  backend:
+    driver: bridge
+  frontend:
+    driver: bridge
