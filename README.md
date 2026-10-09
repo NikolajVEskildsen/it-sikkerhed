@@ -38,7 +38,7 @@ med mock-data). Alt data lever i databasen — intet er hardcodet i frontend.
 | Hvad | URL |
 |---|---|
 | Frontend (demoen) | http://localhost:8080 |
-| REST API direkte | http://localhost:5000/api/query/health |
+| REST API direkte | http://localhost:5000/api/health |
 | MSSQL (DataGrip/SSMS) | `localhost:1433` |
 
 ### Forbind med DataGrip / SSMS
@@ -48,40 +48,45 @@ med mock-data). Alt data lever i databasen — intet er hardcodet i frontend.
 
 ## REST API
 
-Backend gemmer **ingen** forespørgsler. Den har ét generisk endpoint, der udfører
-den SQL frontend sender. De konkrete demo-forespørgsler ligger som consts i
-`frontend/src/App.vue`.
+Frontend sender kun data + et `secure`-flag. **Backend afgør ud fra flaget**, om
+forespørgslen køres rå (sårbar) eller parameteriseret (sikker).
 
 | Metode | Endpoint | Body |
 |---|---|---|
-| POST | `/api/query` | `{ "sql": "...", "parameters": { "@navn": "værdi" } }` |
+| POST | `/api/login`  | `{ "username": "...", "password": "...", "secure": false }` |
+| POST | `/api/search` | `{ "term": "...", "secure": false }` |
 
-- **Sårbar:** frontend sætter input ind i `sql`-strengen og sender uden `parameters`.
-- **Sikker:** frontend sender fast `sql` med pladsholdere + `parameters` adskilt.
+- **`secure: false`** → backend sætter input direkte ind i SQL-strengen og kører den rå.
+- **`secure: true`** → backend kører en **parameteriseret** forespørgsel. Det er den
+  eneste forskel — ingen filtrering eller sanitering af input. Parameteriseringen alene
+  stopper angrebet.
 
-Svaret er `{ columns, rows, error }`.
+Svaret er `{ sql, parameters, columns, rows, error }` (`sql` er den SQL backend faktisk kørte).
 
-Lagdeling (standard .NET): `QueryController` (endpoints) → `QueryService` (logik)
-→ `Database` (model/dataadgang). `DbSeeder` opretter + fylder databasen ved opstart.
+Lagdeling (standard .NET): `LoginController` / `SearchController` (endpoints) →
+`QueryService` (logik, vælger rå vs. parameteriseret ud fra flaget) → `Database`
+(model/dataadgang, `ExecuteRaw` vs. `ExecuteParam`). Forskellen mellem sårbar og
+sikker ligger udelukkende i `QueryService` — rå streng vs. bundne parametre.
+`DbSeeder` opretter + fylder databasen ved opstart.
 
 Demonstrér angrebet direkte mod API'en:
 ```bash
-# Sårbar: rå SQL, logger ind som admin uden adgangskode
-curl -s -X POST http://localhost:5000/api/query \
+# Sårbar: logger ind som admin uden adgangskode
+curl -s -X POST http://localhost:5000/api/login \
   -H 'Content-Type: application/json' \
-  -d '{"sql":"SELECT id, username, email FROM users WHERE username = '\''admin'\'' --'\'' AND password = '\'''\''"}'
+  -d '{"username":"admin'\'' --","password":"","secure":false}'
 
-# Sikker: samme payload som parameter -> 0 rækker
-curl -s -X POST http://localhost:5000/api/query \
+# Sikker: samme payload -> parameteriseret -> 0 rækker
+curl -s -X POST http://localhost:5000/api/login \
   -H 'Content-Type: application/json' \
-  -d '{"sql":"SELECT id, username, email FROM users WHERE username = @username AND password = @password","parameters":{"@username":"admin'\'' --","@password":""}}'
+  -d '{"username":"admin'\'' --","password":"","secure":true}'
 ```
 
 ## Sådan demonstreres det i frontend
 
-Knapperne **Sårbar** / **Sikker** øverst skifter mode. Under hvert felt vises live den
-SQL, der bliver sendt. Angrebsknapperne **udfylder kun feltet** — du trykker selv
-**Log ind** / **Søg** for at sende.
+Knapperne **Sårbar** / **Sikker** øverst skifter mode (sætter `secure`-flaget).
+Angrebsknapperne **udfylder kun feltet** — du trykker selv **Log ind** / **Søg** for
+at sende. Resultatet viser den SQL backend kørte (+ parametre i den sikre version).
 
 ### 1. Login — omgå adgangskontrol
 Klik **`admin' --`** (udfylder feltet), tryk **Log ind**.
@@ -99,7 +104,7 @@ Klik **`' UNION SELECT username, password ...`**, tryk **Søg**.
 
 | | Sårbar | Sikker |
 |---|---|---|
-| Hvordan bygges forespørgslen | input sættes ind i SQL-strengen (`` `... '${input}'` ``) | fast SQL med pladsholdere (`@param`) |
+| Hvordan bygges forespørgslen | input sættes ind i SQL-strengen (`$"... '{input}'"`) | fast SQL med pladsholdere (`@param`) |
 | Hvad er input | kan blive til **kode** | er altid **data** |
 | Hvad adresseres | — | selve årsagen: adskillelse af kode og data |
 
@@ -109,13 +114,13 @@ Parameterisering fjerner årsagen: databasen får forespørgslens struktur førs
 behandler derefter input udelukkende som værdier.
 
 ## Filer
-- `api/Controllers/QueryController.cs` — REST-endpoints
-- `api/Services/QueryService.cs` — logiklag
-- `api/Data/Database.cs` — model/dataadgang (udfører SQL)
+- `api/Controllers/LoginController.cs`, `SearchController.cs` — REST-endpoints + validering
+- `api/Services/QueryService.cs` — logiklag: vælger rå vs. parameteriseret ud fra flaget
+- `api/Data/Database.cs` — model/dataadgang: `ExecuteRaw` vs. `ExecuteParam`
 - `api/Data/DbSeeder.cs` — opretter + fylder databasen ved opstart
-- `api/Models/` — `QueryRequest`, `QueryResult`
-- `frontend/src/App.vue` — UI + de rå SQL-consts, mode-toggle, angrebsknapper
-- `frontend/src/ResultView.vue` — viser resultatet
+- `api/Models/` — `LoginRequest`, `SearchRequest`, `QueryResult`
+- `frontend/src/App.vue` — UI, mode-toggle (secure-flag), angrebsknapper
+- `frontend/src/ResultView.vue` — viser backend'ens SQL + resultat
 - `frontend/nginx.conf` — serverer Vue + proxyer `/api` til API'en
 - `compose.yaml` — db + api + web og de to netværk
 

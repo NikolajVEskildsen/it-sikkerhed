@@ -4,5 +4,6 @@ namespace api.Services;
 
 public interface IQueryService
 {
-    QueryResult Execute(QueryRequest request);
+    QueryResult Login(string username, string password, bool secure);
+    QueryResult Search(string term, bool secure);
 }

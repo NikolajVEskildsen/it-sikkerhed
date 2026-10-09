@@ -13,6 +13,7 @@ var app = builder.Build();
 
 app.UseCors();
 app.MapControllers();
+app.MapGet("/api/health", () => "ok");
 
 // Seed databasen ved opstart (venter på at MSSQL er klar).
 var conn = app.Configuration["DB_CONNECTION"]

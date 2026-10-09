@@ -2,15 +2,9 @@
 import { ref, computed } from 'vue'
 import ResultView from './ResultView.vue'
 
-// ===== Rå SQL — ligger bevidst i frontend til demoen =====
-// Sårbar: brugerinput sættes DIREKTE ind i strengen (data bliver til kode).
-const vulnLoginSql  = (u, p) => `SELECT id, username, email FROM users WHERE username = '${u}' AND password = '${p}'`
-const vulnSearchSql = (t)    => `SELECT username, email FROM users WHERE username LIKE '%${t}%'`
-// Sikker: faste pladsholdere. Input sendes adskilt som parametre (data forbliver data).
-const SECURE_LOGIN_SQL  = `SELECT id, username, email FROM users WHERE username = @username AND password = @password`
-const SECURE_SEARCH_SQL = `SELECT username, email FROM users WHERE username LIKE '%' + @term + '%'`
-
 const mode = ref('vulnerable')   // 'vulnerable' | 'secure'
+const secure = computed(() => mode.value === 'secure')
+
 const user = ref('')
 const pass = ref('')
 const term = ref('')
@@ -23,39 +17,27 @@ function setMode(m) {
   searchResult.value = null
 }
 
-// Live-preview af den SQL der bliver sendt — opdateres mens man skriver/indsætter.
-const loginSql = computed(() =>
-  mode.value === 'vulnerable' ? vulnLoginSql(user.value, pass.value) : SECURE_LOGIN_SQL)
-const searchSql = computed(() =>
-  mode.value === 'vulnerable' ? vulnSearchSql(term.value) : SECURE_SEARCH_SQL)
-const loginParams = computed(() =>
-  mode.value === 'secure' ? `@username = '${user.value}', @password = '${pass.value}'` : null)
-const searchParams = computed(() =>
-  mode.value === 'secure' ? `@term = '${term.value}'` : null)
-
-async function post(body) {
-  const r = await fetch('/api/query', {
+// Frontend sender kun data + secure-flaget. Backend vælger selv rå vs. parameteriseret.
+async function post(url, body) {
+  const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  if (!r.ok) return { error: await r.text() }   // fx 400 fra validering
   return await r.json()
 }
 
 async function runLogin() {
-  const body = mode.value === 'vulnerable'
-    ? { sql: vulnLoginSql(user.value, pass.value) }
-    : { sql: SECURE_LOGIN_SQL, parameters: { '@username': user.value, '@password': pass.value } }
   searchResult.value = null
-  loginResult.value = await post(body)
+  loginResult.value = await post('/api/login',
+    { username: user.value, password: pass.value, secure: secure.value })
 }
 
 async function runSearch() {
-  const body = mode.value === 'vulnerable'
-    ? { sql: vulnSearchSql(term.value) }
-    : { sql: SECURE_SEARCH_SQL, parameters: { '@term': term.value } }
   loginResult.value = null
-  searchResult.value = await post(body)
+  searchResult.value = await post('/api/search',
+    { term: term.value, secure: secure.value })
 }
 
 // Angrebsknapper: udfylder KUN felterne. Man sender selv bagefter.
@@ -72,8 +54,8 @@ function fillUnion()        { term.value = "' UNION SELECT username, password FR
       </span>
       <span class="mode-sub">
         {{ mode === 'vulnerable'
-          ? 'Forespørgsler bygges med streng-sammensætning — data blandes med kode.'
-          : 'Forespørgsler er parameteriserede — data holdes adskilt fra kode.' }}
+          ? 'Backend kører den rå SQL-streng — data blandes med kode.'
+          : 'Backend validerer og kører en parameteriseret forespørgsel — data holdes adskilt fra kode.' }}
       </span>
       <span class="mode-toggle">
         <button :class="{ active: mode === 'vulnerable' }" @click="setMode('vulnerable')">Sårbar</button>
@@ -89,13 +71,6 @@ function fillUnion()        { term.value = "' UNION SELECT username, password FR
         <input v-model="user" />
         <label>Adgangskode</label>
         <input v-model="pass" />
-
-        <div class="sql-label">SQL der sendes til backend:</div>
-        <pre class="sql">{{ loginSql }}</pre>
-        <template v-if="loginParams">
-          <div class="sql-label">Parametre (data):</div>
-          <pre class="sql params">{{ loginParams }}</pre>
-        </template>
 
         <button class="primary" @click="runLogin">Log ind</button>
 
@@ -115,13 +90,6 @@ function fillUnion()        { term.value = "' UNION SELECT username, password FR
         <h2>2. Brugersøgning — stjæl data (UNION)</h2>
         <label>Søg efter brugernavn</label>
         <input v-model="term" />
-
-        <div class="sql-label">SQL der sendes til backend:</div>
-        <pre class="sql">{{ searchSql }}</pre>
-        <template v-if="searchParams">
-          <div class="sql-label">Parametre (data):</div>
-          <pre class="sql params">{{ searchParams }}</pre>
-        </template>
 
         <button class="primary" @click="runSearch">Søg</button>
 
@@ -163,7 +131,7 @@ body { margin: 0; font-family: system-ui, sans-serif; color: #222; background: #
 .card h2 { font-size: 1.05rem; margin: 0 0 .75rem; }
 label { display: block; font-size: .85rem; font-weight: 600; margin: .5rem 0 .2rem; }
 input { width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: .3rem; }
-button.primary { margin-top: .5rem; background: #0d6efd; color: #fff; border: 0;
+button.primary { margin-top: .75rem; background: #0d6efd; color: #fff; border: 0;
   padding: .5rem 1rem; border-radius: .3rem; cursor: pointer; }
 
 .attack-box {
@@ -176,12 +144,12 @@ button.primary { margin-top: .5rem; background: #0d6efd; color: #fff; border: 0;
 button.attack { background: #dc3545; color: #fff; border: 0; padding: .35rem .7rem;
   border-radius: .3rem; cursor: pointer; font-size: .85rem; }
 
+.result { margin-top: 1rem; }
 .sql-label { font-size: .8rem; font-weight: 600; color: #555; margin: .6rem 0 .2rem; }
 pre.sql { background: #1e1e1e; color: #d4d4d4; padding: .6rem .75rem; border-radius: .4rem;
-  font-size: .82rem; white-space: pre-wrap; word-break: break-word; margin: 0; }
+  font-size: .82rem; white-space: pre-wrap; word-break: break-word; margin: 0 0 .6rem; }
 pre.sql.params { background: #0d3b2e; color: #a7f3d0; }
 
-.result { margin-top: 1rem; }
 .alert { padding: .5rem .75rem; border-radius: .3rem; margin-bottom: .6rem; font-size: .9rem; }
 .alert.danger  { background: #f8d7da; color: #842029; }
 .alert.success { background: #d1e7dd; color: #0f5132; }

@@ -4,9 +4,9 @@ using api.Models;
 namespace api.Data;
 
 /// <summary>
-/// Model-/datalag: taler med MSSQL. Det kender ikke de konkrete demo-forespørgsler
-/// (de ligger i frontend) — det udfører bare den SQL det får.
-/// Bindes <paramref name="parameters"/> med, er input data; ellers er det ren streng.
+/// Model-/datalag. To måder at tale med databasen på:
+///   - <see cref="ExecuteRaw"/>:   SQL-strengen køres som den er (den sårbare vej).
+///   - <see cref="ExecuteParam"/>: input bindes som parametre (den korrekte vej).
 /// </summary>
 public class Database
 {
@@ -16,8 +16,16 @@ public class Database
         _conn = config["DB_CONNECTION"]
             ?? "Server=localhost,1433;Database=SqliDemo;User Id=sa;Password=Str0ng!Passw0rd;TrustServerCertificate=true";
 
-    public QueryResult Execute(string sql, Dictionary<string, string>? parameters)
+    /// <summary>SÅRBAR vej: kør strengen råt — input kan være blevet til kode.</summary>
+    public QueryResult ExecuteRaw(string sql) => Run(sql, null, null);
+
+    /// <summary>SIKKER vej: bind input som parametre — input forbliver data.</summary>
+    public QueryResult ExecuteParam(string sql, Dictionary<string, string> parameters)
+        => Run(sql, parameters, string.Join(", ", parameters.Select(p => $"{p.Key} = '{p.Value}'")));
+
+    private QueryResult Run(string sql, Dictionary<string, string>? parameters, string? paramsDisplay)
     {
+        var result = new QueryResult { Sql = sql, Parameters = paramsDisplay };
         try
         {
             using var c = new SqlConnection(_conn);
@@ -28,7 +36,7 @@ public class Database
                     cmd.Parameters.AddWithValue(name, value);
 
             using var reader = cmd.ExecuteReader();
-            var columns = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToArray();
+            result.Columns = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToArray();
             var rows = new List<string[]>();
             while (reader.Read())
             {
@@ -37,11 +45,12 @@ public class Database
                     row[i] = reader.IsDBNull(i) ? "NULL" : reader.GetValue(i).ToString() ?? "";
                 rows.Add(row);
             }
-            return new QueryResult { Columns = columns, Rows = rows };
+            result.Rows = rows;
         }
         catch (SqlException ex)
         {
-            return new QueryResult { Error = ex.Message };
+            result.Error = ex.Message;
         }
+        return result;
     }
 }
