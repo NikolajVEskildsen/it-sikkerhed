@@ -14,30 +14,32 @@ public class QueryService : IQueryService
 
     public QueryService(Database db) => _db = db;
 
-    public QueryResult Login(string username, string password, bool secure)
+    public QueryResult SecureLogin(string username, string password)
     {
-        if (secure)
-        {
-            const string sql = "SELECT id, username, email FROM users " +
-                               "WHERE username = @username AND password = @password";
-            return _db.ExecuteParam(sql, new() { ["@username"] = username, ["@password"] = password });
-        }
+        // Sikker: input sættes som parameter.
+        const string sql = "SELECT id, username, email FROM users " +
+                            "WHERE username = @username AND password = @password";
+        return _db.ExecuteParam(sql, new() { ["@username"] = username, ["@password"] = password });   
+    }
 
+    public QueryResult UnsecureLogin(string username, string password)
+    {
         // SÅRBAR: input sættes direkte ind i strengen.
         var raw = "SELECT id, username, email FROM users " +
                   $"WHERE username = '{username}' AND password = '{password}'";
         return _db.ExecuteRaw(raw);
     }
 
-    public QueryResult Search(string term, bool secure)
+    public QueryResult SecureSearch(string term)
     {
-        if (secure)
-        {
-            const string sql = "SELECT username, email FROM users " +
-                               "WHERE username LIKE '%' + @term + '%'";
-            return _db.ExecuteParam(sql, new() { ["@term"] = term });
-        }
+        // Sikker: input sættes som parameter.
+        const string sql = "SELECT username, email FROM users " +
+                            "WHERE username LIKE '%' + @term + '%'";
+        return _db.ExecuteParam(sql, new() { ["@term"] = term });
+    }
 
+    public QueryResult UnsecureSearch(string term)
+    {
         // SÅRBAR: input sættes direkte ind i strengen.
         var raw = "SELECT username, email FROM users " +
                   $"WHERE username LIKE '%{term}%'";

@@ -30,14 +30,14 @@ async function post(url, body) {
 
 async function runLogin() {
   searchResult.value = null
-  loginResult.value = await post('/api/login',
-    { username: user.value, password: pass.value, secure: secure.value })
+  loginResult.value = await post(secure.value ? '/api/Login/SecureLogin' : '/api/Login/UnsecureLogin',
+    { username: user.value, password: pass.value })
 }
 
 async function runSearch() {
   loginResult.value = null
-  searchResult.value = await post('/api/search',
-    { term: term.value, secure: secure.value })
+  searchResult.value = await post(secure.value ? '/api/Search/SecureSearch' : '/api/Search/UnsecureSearch',
+    { term: term.value })
 }
 
 // Angrebsknapper: udfylder KUN felterne. Man sender selv bagefter.

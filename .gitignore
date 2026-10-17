@@ -1,4 +1,27 @@
+# .NET build output
 bin/
 obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.rsuser
+
+# Node / Vite
 node_modules/
 dist/
+npm-debug.log*
+
+# Environment files (secrets)
+.env
+.env.*
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
