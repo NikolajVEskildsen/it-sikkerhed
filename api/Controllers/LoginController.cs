@@ -12,8 +12,13 @@ public class LoginController : ControllerBase
 
     public LoginController(IQueryService service) => _service = service;
 
-    // POST /api/login
-    [HttpPost]
-    public QueryResult Login([FromBody] LoginRequest req)
-        => _service.Login(req.Username, req.Password, req.Secure);
+    // POST /api/SecureLogin
+    [HttpPost("SecureLogin")]
+    public QueryResult SecureLogin([FromBody] LoginRequest req)
+        => _service.SecureLogin(req.Username, req.Password);
+
+    // POST /api/UnsecureLogin
+    [HttpPost("UnsecureLogin")]
+    public QueryResult UnsecureLogin([FromBody] LoginRequest req)
+        => _service.UnsecureLogin(req.Username, req.Password);
 }

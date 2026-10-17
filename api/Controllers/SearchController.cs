@@ -12,8 +12,13 @@ public class SearchController : ControllerBase
 
     public SearchController(IQueryService service) => _service = service;
 
-    // POST /api/search
-    [HttpPost]
-    public QueryResult Search([FromBody] SearchRequest req)
-        => _service.Search(req.Term, req.Secure);
+    // POST /api/SecureSearch
+    [HttpPost("SecureSearch")]
+    public QueryResult SecureSearch([FromBody] SearchRequest req)
+        => _service.SecureSearch(req.Term);
+
+    // POST /api/UnsecureSearch
+    [HttpPost("UnsecureSearch")]
+    public QueryResult UnsecureSearch([FromBody] SearchRequest req)
+        => _service.UnsecureSearch(req.Term);
 }
