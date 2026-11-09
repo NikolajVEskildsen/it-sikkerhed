@@ -21,4 +21,9 @@ public class LoginController : ControllerBase
     [HttpPost("UnsecureLogin")]
     public QueryResult UnsecureLogin([FromBody] LoginRequest req)
         => _service.UnsecureLogin(req.Username, req.Password);
+
+    // POST /api/FilteredLogin — usikker konstruktion, men input filtreres først.
+    [HttpPost("FilteredLogin")]
+    public QueryResult FilteredLogin([FromBody] LoginRequest req)
+        => _service.FilteredLogin(req.Username, req.Password);
 }

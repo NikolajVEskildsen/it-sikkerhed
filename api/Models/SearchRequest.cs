@@ -4,6 +4,9 @@ public class SearchRequest
 {
     public string Term { get; set; } = "";
 
-    /// <summary>true = kør den sikre (parameteriserede) vej; false = den sårbare.</summary>
+    /// <summary>
+    /// Legacy-felt. Versionen vælges nu af ENDPOINTET (UnsecureSearch / FilteredSearch /
+    /// SecureSearch), ikke af dette flag. Bevaret for bagudkompatibilitet; ignoreres.
+    /// </summary>
     public bool Secure { get; set; }
 }

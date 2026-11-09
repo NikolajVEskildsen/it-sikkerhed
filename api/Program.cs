@@ -7,6 +7,7 @@ builder.Services.AddControllers();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 builder.Services.AddScoped<Database>();
+builder.Services.AddScoped<InputFilter>();
 builder.Services.AddScoped<IQueryService, QueryService>();
 
 var app = builder.Build();

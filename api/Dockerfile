@@ -4,7 +4,8 @@ WORKDIR /src
 COPY api.csproj .
 RUN dotnet restore
 COPY . .
-RUN dotnet publish -c Release -o /app
+# Udgiv projektet eksplicit (ikke api.sln, som også refererer testprojektet uden for build-konteksten).
+RUN dotnet publish api.csproj -c Release -o /app
 
 # ---- runtime ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

@@ -21,4 +21,9 @@ public class SearchController : ControllerBase
     [HttpPost("UnsecureSearch")]
     public QueryResult UnsecureSearch([FromBody] SearchRequest req)
         => _service.UnsecureSearch(req.Term);
+
+    // POST /api/FilteredSearch — usikker konstruktion, men input filtreres først.
+    [HttpPost("FilteredSearch")]
+    public QueryResult FilteredSearch([FromBody] SearchRequest req)
+        => _service.FilteredSearch(req.Term);
 }

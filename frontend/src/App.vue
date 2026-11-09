@@ -2,8 +2,27 @@
 import { ref, computed } from 'vue'
 import ResultView from './ResultView.vue'
 
-const mode = ref('vulnerable')   // 'vulnerable' | 'secure'
-const secure = computed(() => mode.value === 'secure')
+// Tre selvstændige versioner. Hver har sit eget backend-endpoint.
+const mode = ref('vulnerable')   // 'vulnerable' | 'filtered' | 'secure'
+
+const MODES = {
+  vulnerable: {
+    name: 'Usikker',
+    login: '/api/Login/UnsecureLogin',
+    search: '/api/Search/UnsecureSearch',
+  },
+  filtered: {
+    name: 'Usikker med inputfiltrering',
+    login: '/api/Login/FilteredLogin',
+    search: '/api/Search/FilteredSearch',
+  },
+  secure: {
+    name: 'Parameteriseret',
+    login: '/api/Login/SecureLogin',
+    search: '/api/Search/SecureSearch',
+  },
+}
+const current = computed(() => MODES[mode.value])
 
 const user = ref('')
 const pass = ref('')
@@ -11,74 +30,71 @@ const term = ref('')
 const loginResult = ref(null)
 const searchResult = ref(null)
 
+// Skift version: bevar de indtastede værdier, men ryd tidligere resultater,
+// så det samme input kan sammenlignes på tværs af alle tre versioner.
 function setMode(m) {
   mode.value = m
   loginResult.value = null
   searchResult.value = null
 }
 
-// Frontend sender kun data + secure-flaget. Backend vælger selv rå vs. parameteriseret.
 async function post(url, body) {
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) return { error: await r.text() }   // fx 400 fra validering
+  if (!r.ok) return { error: await r.text() }
   return await r.json()
 }
 
 async function runLogin() {
   searchResult.value = null
-  loginResult.value = await post(secure.value ? '/api/Login/SecureLogin' : '/api/Login/UnsecureLogin',
-    { username: user.value, password: pass.value })
+  loginResult.value = await post(current.value.login, { username: user.value, password: pass.value })
 }
 
 async function runSearch() {
   loginResult.value = null
-  searchResult.value = await post(secure.value ? '/api/Search/SecureSearch' : '/api/Search/UnsecureSearch',
-    { term: term.value })
+  searchResult.value = await post(current.value.search, { term: term.value })
 }
 
-// Angrebsknapper: udfylder KUN felterne. Man sender selv bagefter.
-function fillAdminComment() { user.value = "admin' --"; pass.value = '' }
-function fillOrTrue()       { user.value = 'x'; pass.value = "x' OR '1'='1" }
-function fillUnion()        { term.value = "' UNION SELECT username, password FROM users --" }
+// Demo-knapper: udfylder KUN felterne — man trykker selv Log ind / Søg.
+function loginNormal()    { user.value = 'mette'; pass.value = 'sommer2025' }        // gyldig bruger
+function loginInjection() { user.value = "admin' --"; pass.value = '' }              // klassisk bypass
+function loginCaught()    { user.value = 'admin'; pass.value = "' OR 1=1 --" }       // filteret fanger ordet OR
+function searchNormal()   { term.value = 'met' }                                     // normal søgning
+function searchInjection(){ term.value = "' UNION SELECT username, password FROM users --" }
 </script>
 
 <template>
-  <div class="page" :class="mode === 'vulnerable' ? 'demo-vuln' : 'demo-secure'">
-    <div class="mode-bar">
-      <span class="mode-label">
-        {{ mode === 'vulnerable' ? '⚠️ SÅRBAR VERSION' : '✅ SIKKER VERSION' }}
-      </span>
-      <span class="mode-sub">
-        {{ mode === 'vulnerable'
-          ? 'Backend kører den rå SQL-streng — data blandes med kode.'
-          : 'Backend validerer og kører en parameteriseret forespørgsel — data holdes adskilt fra kode.' }}
-      </span>
-      <span class="mode-toggle">
-        <button :class="{ active: mode === 'vulnerable' }" @click="setMode('vulnerable')">Sårbar</button>
-        <button :class="{ active: mode === 'secure' }" @click="setMode('secure')">Sikker</button>
-      </span>
-    </div>
+  <div class="page" :class="'demo-' + mode">
+    <header class="topbar">
+      <strong>Min konto</strong>
+      <nav class="versions">
+        <button :class="{ active: mode === 'vulnerable' }" @click="setMode('vulnerable')">Usikker</button>
+        <button :class="{ active: mode === 'filtered' }" @click="setMode('filtered')">Usikker med inputfiltrering</button>
+        <button :class="{ active: mode === 'secure' }" @click="setMode('secure')">Parameteriseret</button>
+      </nav>
+    </header>
 
     <div class="cards">
       <!-- 1. LOGIN -->
       <section class="card">
-        <h2>1. Login — omgå adgangskontrol</h2>
+        <h2>Log ind</h2>
         <label>Brugernavn</label>
         <input v-model="user" />
         <label>Adgangskode</label>
-        <input v-model="pass" />
-
+        <input v-model="pass" type="text" />
         <button class="primary" @click="runLogin">Log ind</button>
 
-        <div class="attack-box">
-          <div class="attack-title">Angreb (klik udfylder kun feltet — tryk selv "Log ind"):</div>
-          <button class="attack" @click="fillAdminComment">admin' --</button>
-          <button class="attack" @click="fillOrTrue">' OR '1'='1</button>
-          <div class="attack-hint">Mål: log ind som <code>admin</code> uden at kende adgangskoden.</div>
+        <div class="demo-box">
+          <span class="demo-label">Demo:</span>
+          <button class="demo normal" @click="loginNormal">Normal brug</button>
+          <button v-if="mode !== 'filtered'" class="demo attack" @click="loginInjection">Injection</button>
+          <template v-else>
+            <button class="demo attack" @click="loginCaught">Injection 1 — fanges af filter</button>
+            <button class="demo attack" @click="loginInjection">Injection 2 — slipper forbi</button>
+          </template>
         </div>
 
         <ResultView :result="loginResult" :success-when-rows="true"
@@ -87,16 +103,15 @@ function fillUnion()        { term.value = "' UNION SELECT username, password FR
 
       <!-- 2. SØGNING -->
       <section class="card">
-        <h2>2. Brugersøgning — stjæl data (UNION)</h2>
-        <label>Søg efter brugernavn</label>
+        <h2>Søg bruger</h2>
+        <label>Brugernavn</label>
         <input v-model="term" />
-
         <button class="primary" @click="runSearch">Søg</button>
 
-        <div class="attack-box">
-          <div class="attack-title">Angreb (klik udfylder kun feltet — tryk selv "Søg"):</div>
-          <button class="attack" @click="fillUnion">' UNION SELECT username, password ...</button>
-          <div class="attack-hint">Mål: få <code>password</code>-kolonnen med ud selvom siden kun viser navn + email.</div>
+        <div class="demo-box">
+          <span class="demo-label">Demo:</span>
+          <button class="demo normal" @click="searchNormal">Normal brug</button>
+          <button class="demo attack" @click="searchInjection">Injection</button>
         </div>
 
         <ResultView :result="searchResult" :success-when-rows="false" />
@@ -108,21 +123,18 @@ function fillUnion()        { term.value = "' UNION SELECT username, password FR
 <style>
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, sans-serif; color: #222; background: #f5f5f5; }
-.page { max-width: 1100px; margin: 0 auto; padding: 1rem; }
+.page { max-width: 1000px; margin: 0 auto; padding: 1rem; }
 
-.mode-bar {
-  display: flex; flex-wrap: wrap; align-items: center; gap: .75rem;
-  padding: 1rem; border-radius: .5rem; color: #fff;
+.topbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: .75rem; padding: .75rem 1rem; background: #fff; border: 1px solid #ddd; border-radius: .5rem;
 }
-.demo-vuln   .mode-bar { background: #b02a37; }
-.demo-secure .mode-bar { background: #146c43; }
-.mode-label { font-weight: 700; font-size: 1.15rem; }
-.mode-sub   { flex: 1 1 320px; font-size: .9rem; opacity: .95; }
-.mode-toggle button {
-  border: 1px solid #fff; background: transparent; color: #fff;
-  padding: .3rem .8rem; border-radius: .3rem; cursor: pointer; margin-left: .3rem;
+.topbar strong { font-size: 1.05rem; }
+.versions button {
+  border: 1px solid #ccc; background: #f1f1f1; color: #333;
+  padding: .3rem .8rem; border-radius: .3rem; cursor: pointer; margin-left: .3rem; font-size: .85rem;
 }
-.mode-toggle button.active { background: #fff; color: #222; font-weight: 600; }
+.versions button.active { background: #0d6efd; color: #fff; border-color: #0d6efd; font-weight: 600; }
 
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
 @media (max-width: 800px) { .cards { grid-template-columns: 1fr; } }
@@ -134,15 +146,16 @@ input { width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: .3re
 button.primary { margin-top: .75rem; background: #0d6efd; color: #fff; border: 0;
   padding: .5rem 1rem; border-radius: .3rem; cursor: pointer; }
 
-.attack-box {
-  margin-top: 1rem; padding: .6rem .75rem; background: #fff3cd;
-  border: 1px solid #ffe69c; border-radius: .4rem;
+/* Eneste "forklaringsboks": demo-knapperne. */
+.demo-box {
+  margin-top: 1rem; padding: .55rem .7rem; background: #f8f9fa;
+  border: 1px solid #e3e3e3; border-radius: .4rem;
   display: flex; flex-wrap: wrap; gap: .4rem; align-items: center;
 }
-.attack-title { width: 100%; font-weight: 600; font-size: .85rem; }
-.attack-hint  { width: 100%; font-size: .8rem; color: #665; margin-top: .2rem; }
-button.attack { background: #dc3545; color: #fff; border: 0; padding: .35rem .7rem;
-  border-radius: .3rem; cursor: pointer; font-size: .85rem; }
+.demo-label { font-size: .8rem; font-weight: 600; color: #666; }
+button.demo { border: 0; padding: .35rem .7rem; border-radius: .3rem; cursor: pointer; font-size: .85rem; color: #fff; }
+button.demo.normal { background: #198754; }
+button.demo.attack { background: #dc3545; }
 
 .result { margin-top: 1rem; }
 .sql-label { font-size: .8rem; font-weight: 600; color: #555; margin: .6rem 0 .2rem; }
@@ -158,4 +171,12 @@ pre.sql.params { background: #0d3b2e; color: #a7f3d0; }
 table.data { width: 100%; border-collapse: collapse; font-size: .85rem; }
 table.data th, table.data td { border: 1px solid #ccc; padding: .35rem .5rem; text-align: left; }
 table.data th { background: #f1f1f1; }
+
+.filter-rule { font-size: .82rem; color: #7a4b05; background: #fff3cd; border: 1px solid #ffe69c;
+  border-radius: .3rem; padding: .4rem .55rem; margin-bottom: .5rem; }
+table.filter-table { margin-bottom: .6rem; }
+table.filter-table code { font-size: .82rem; }
+table.filter-table code.changed { background: #f8d7da; padding: 0 .2rem; border-radius: .2rem; }
+.chg-tag { font-size: .7rem; margin-left: .4rem; color: #842029; font-weight: 600; }
+.chg-tag.unchanged { color: #555; font-weight: 400; }
 </style>

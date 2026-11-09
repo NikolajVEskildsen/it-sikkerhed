@@ -9,10 +9,34 @@ const props = defineProps({
 })
 
 const ok = computed(() => props.result?.rows?.length > 0)
+
+// Tom streng skal vises synligt i før/efter-tabellen.
+function show(v) { return v === '' ? '(tom)' : v }
 </script>
 
 <template>
   <div class="result" v-if="result">
+    <template v-if="result.filter">
+      <div class="sql-label">Inputfiltrering (udført i backend før SQL bygges):</div>
+      <div class="filter-rule">{{ result.filter.rule }}</div>
+      <table class="data filter-table">
+        <thead>
+          <tr><th>Felt</th><th>Oprindeligt input</th><th>Filtreret input (brugt i SQL)</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="f in result.filter.fields" :key="f.name">
+            <td>{{ f.name }}</td>
+            <td><code>{{ show(f.original) }}</code></td>
+            <td>
+              <code :class="{ changed: f.changed }">{{ show(f.filtered) }}</code>
+              <span v-if="f.changed" class="chg-tag">ændret</span>
+              <span v-else class="chg-tag unchanged">uændret</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </template>
+
     <template v-if="result.sql">
       <div class="sql-label">SQL udført i backend:</div>
       <pre class="sql">{{ result.sql }}</pre>

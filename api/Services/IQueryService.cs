@@ -6,6 +6,8 @@ public interface IQueryService
 {
     QueryResult SecureLogin(string username, string password);
     QueryResult UnsecureLogin(string username, string password);
+    QueryResult FilteredLogin(string username, string password);
     QueryResult SecureSearch(string term);
     QueryResult UnsecureSearch(string term);
+    QueryResult FilteredSearch(string term);
 }
